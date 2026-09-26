@@ -78,7 +78,7 @@ GitHub ──► github/        клиент REST API, JSON → модели
 4. Запустить:
 
 ```sh
-pip install .
+pip install -e .   # -e: команда changelog-bot идёт по коду из этой папки, правки видны сразу
 changelog-bot
 ```
 

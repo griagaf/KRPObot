@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Self
 from zoneinfo import ZoneInfo
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 REQUIRED = ("TELEGRAM_BOT_TOKEN",)
 REQUIRED_FOR_WATCHING = ("TELEGRAM_CHAT_ID", "GITHUB_TOKEN")
@@ -38,7 +38,8 @@ class Settings:
     def from_env(cls, *, watching: bool = True) -> Self:
         """watching=False — демо-режим: только команды, без наблюдения за репозиториями.
         GitHub тогда опрашивается анонимно, этого хватает на команды."""
-        load_dotenv()
+        # .env из папки запуска: без usecwd его ищут рядом с кодом, а у установленного пакета это site-packages
+        load_dotenv(find_dotenv(usecwd=True))
         required = REQUIRED + REQUIRED_FOR_WATCHING if watching else REQUIRED
         if missing := [name for name in required if not os.getenv(name)]:
             raise ConfigError("Не заданы переменные окружения: " + ", ".join(missing))
