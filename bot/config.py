@@ -1,0 +1,59 @@
+import os
+from dataclasses import dataclass
+from typing import Self
+from zoneinfo import ZoneInfo
+
+from dotenv import load_dotenv
+
+REQUIRED = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "GITHUB_TOKEN")
+CI_NOTIFY_MODES = ("all", "failures")
+
+
+class ConfigError(Exception):
+    pass
+
+
+def parse_chat_id(value: str) -> int | str:
+    """Числовой id чата (группа, личка) или @username канала."""
+    return int(value) if value.lstrip("-").isdigit() else value
+
+
+@dataclass(frozen=True)
+class Settings:
+    telegram_token: str
+    chat_id: int | str
+    thread_id: int | None
+    github_token: str
+    github_org: str
+    repos: tuple[str, ...]
+    poll_interval: int
+    notify_build_success: bool
+    redmine_url: str
+    redmine_api_key: str | None
+    db_path: str
+    timezone: ZoneInfo
+
+    @classmethod
+    def from_env(cls) -> Self:
+        load_dotenv()
+        if missing := [name for name in REQUIRED if not os.getenv(name)]:
+            raise ConfigError("Не заданы переменные окружения: " + ", ".join(missing))
+        ci_notify = os.getenv("CI_NOTIFY", "all")
+        if ci_notify not in CI_NOTIFY_MODES:
+            raise ConfigError(f"CI_NOTIFY должен быть одним из: {', '.join(CI_NOTIFY_MODES)}")
+
+        thread_id = os.getenv("TELEGRAM_THREAD_ID")
+        return cls(
+            telegram_token=os.environ["TELEGRAM_BOT_TOKEN"],
+            chat_id=parse_chat_id(os.environ["TELEGRAM_CHAT_ID"]),
+            thread_id=int(thread_id) if thread_id else None,
+            github_token=os.environ["GITHUB_TOKEN"],
+            github_org=os.getenv("GITHUB_ORG", "dejaview-nsu"),
+            repos=tuple(r.strip() for r in os.getenv("GITHUB_REPOS", "").split(",") if r.strip()),
+            poll_interval=int(os.getenv("POLL_INTERVAL", "60")),
+            notify_build_success=ci_notify == "all",
+            redmine_url=os.getenv("REDMINE_URL", "https://ai.nsu.ru").rstrip("/"),
+            redmine_api_key=os.getenv("REDMINE_API_KEY") or None,
+            db_path=os.getenv("DB_PATH", "bot.sqlite3"),
+            timezone=ZoneInfo(os.getenv("TIMEZONE", "Asia/Novosibirsk")),
+        )
