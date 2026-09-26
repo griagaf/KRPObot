@@ -47,6 +47,9 @@ class PeopleService:
         self._store.save(person)
         return person
 
+    def find_by_telegram(self, tg_id: int) -> Person | None:
+        return self._store.find_by_telegram(tg_id)
+
     def unlink(self, tg_id: int) -> Person | None:
         return self._store.remove(tg_id)
 

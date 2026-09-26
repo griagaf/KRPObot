@@ -30,6 +30,10 @@ class PeopleStore:
         ).fetchone()
         return Person(*row) if row else None
 
+    def find_by_telegram(self, tg_id: int) -> Person | None:
+        row = self._db.execute("SELECT github_login, tg_id, tg_name FROM people WHERE tg_id = ?", (tg_id,)).fetchone()
+        return Person(*row) if row else None
+
     def all(self) -> list[Person]:
         rows = self._db.execute("SELECT github_login, tg_id, tg_name FROM people ORDER BY github_login COLLATE NOCASE")
         return [Person(*row) for row in rows]
@@ -44,9 +48,8 @@ class PeopleStore:
             )
 
     def remove(self, tg_id: int) -> Person | None:
-        row = self._db.execute("SELECT github_login, tg_id, tg_name FROM people WHERE tg_id = ?", (tg_id,)).fetchone()
-        if row is None:
-            return None
-        with self._db:
-            self._db.execute("DELETE FROM people WHERE tg_id = ?", (tg_id,))
-        return Person(*row)
+        person = self.find_by_telegram(tg_id)
+        if person is not None:
+            with self._db:
+                self._db.execute("DELETE FROM people WHERE tg_id = ?", (tg_id,))
+        return person

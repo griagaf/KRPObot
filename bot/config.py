@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
-REQUIRED = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "GITHUB_TOKEN")
+REQUIRED = ("TELEGRAM_BOT_TOKEN",)
+REQUIRED_FOR_WATCHING = ("TELEGRAM_CHAT_ID", "GITHUB_TOKEN")
 CI_NOTIFY_MODES = ("all", "failures")
 
 
@@ -21,7 +22,7 @@ def parse_chat_id(value: str) -> int | str:
 @dataclass(frozen=True)
 class Settings:
     telegram_token: str
-    chat_id: int | str
+    chat_id: int | str | None  # куда слать уведомления; без него работают только команды
     thread_id: int | None
     github_token: str
     github_org: str
@@ -34,20 +35,24 @@ class Settings:
     timezone: ZoneInfo
 
     @classmethod
-    def from_env(cls) -> Self:
+    def from_env(cls, *, watching: bool = True) -> Self:
+        """watching=False — демо-режим: только команды, без наблюдения за репозиториями.
+        GitHub тогда опрашивается анонимно, этого хватает на команды."""
         load_dotenv()
-        if missing := [name for name in REQUIRED if not os.getenv(name)]:
+        required = REQUIRED + REQUIRED_FOR_WATCHING if watching else REQUIRED
+        if missing := [name for name in required if not os.getenv(name)]:
             raise ConfigError("Не заданы переменные окружения: " + ", ".join(missing))
         ci_notify = os.getenv("CI_NOTIFY", "all")
         if ci_notify not in CI_NOTIFY_MODES:
             raise ConfigError(f"CI_NOTIFY должен быть одним из: {', '.join(CI_NOTIFY_MODES)}")
 
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
         thread_id = os.getenv("TELEGRAM_THREAD_ID")
         return cls(
             telegram_token=os.environ["TELEGRAM_BOT_TOKEN"],
-            chat_id=parse_chat_id(os.environ["TELEGRAM_CHAT_ID"]),
+            chat_id=parse_chat_id(chat_id) if chat_id else None,
             thread_id=int(thread_id) if thread_id else None,
-            github_token=os.environ["GITHUB_TOKEN"],
+            github_token=os.getenv("GITHUB_TOKEN", ""),
             github_org=os.getenv("GITHUB_ORG", "dejaview-nsu"),
             repos=tuple(r.strip() for r in os.getenv("GITHUB_REPOS", "").split(",") if r.strip()),
             poll_interval=int(os.getenv("POLL_INTERVAL", "60")),

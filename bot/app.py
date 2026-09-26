@@ -1,4 +1,4 @@
-"""Точка сборки: создаёт зависимости и запускает наблюдатель вместе с приёмом команд."""
+"""Точка сборки: создаёт зависимости и запускает приём команд, а в обычном режиме и наблюдатель."""
 
 import asyncio
 import contextlib
@@ -8,9 +8,9 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from bot import db
+from bot import db, demo
 from bot.changelog import ChangelogService
-from bot.config import Settings
+from bot.config import ConfigError, Settings
 from bot.github import GitHubClient
 from bot.people import PeopleService, PeopleStore
 from bot.redmine import RedmineClient
@@ -23,7 +23,8 @@ from bot.watcher import RepoScanner, Watcher, WatchState
 log = logging.getLogger(__name__)
 
 
-async def run(settings: Settings) -> None:
+async def run(settings: Settings, *, demo_mode: bool = False) -> None:
+    """demo_mode: без наблюдения за репозиториями, зато с /demo — примерами всех карточек."""
     connection = db.connect(settings.db_path)
     bot = Bot(
         settings.telegram_token,
@@ -31,7 +32,7 @@ async def run(settings: Settings) -> None:
     )
     try:
         # До обращений к GitHub: меню команд появится, даже если GitHub недоступен.
-        await bot.set_my_commands(COMMANDS)
+        await bot.set_my_commands(demo.COMMANDS if demo_mode else COMMANDS)
         async with (
             GitHubClient(settings.github_token, settings.github_org) as github,
             RedmineClient(settings.redmine_url, settings.redmine_api_key) as redmine,
@@ -39,20 +40,22 @@ async def run(settings: Settings) -> None:
             repos = settings.repos or tuple(await github.org_repos())
             people = PeopleStore(connection)
             view = View(people, redmine.issue_url, settings.github_org)
-            state = WatchState(connection)
-            notifier = ChatNotifier(
-                bot, ChatTarget(settings.chat_id, settings.thread_id), view, ChatPolicy(settings.notify_build_success)
-            )
-            watcher = Watcher(RepoScanner(github, state), state, repos, [notifier], interval=settings.poll_interval)
-
             dispatcher = Dispatcher(
                 people=PeopleService(people, github),
                 changelog=ChangelogService(github, redmine, repos, settings.timezone),
                 view=view,
                 timezone=settings.timezone,
             )
+            if demo_mode:
+                dispatcher.include_router(demo.build_router())
             dispatcher.include_router(build_router())
 
+            if demo_mode:
+                log.info("Демо-режим: наблюдение выключено, напишите боту /demo")
+                await dispatcher.start_polling(bot)
+                return
+
+            watcher = _watcher(settings, bot, github, view, WatchState(connection), repos)
             log.info("Слежу за репозиториями: %s", ", ".join(repos))
             watch_task = asyncio.create_task(watcher.run(), name="watcher")
             try:
@@ -64,3 +67,13 @@ async def run(settings: Settings) -> None:
     finally:
         await bot.session.close()
         connection.close()
+
+
+def _watcher(
+    settings: Settings, bot: Bot, github: GitHubClient, view: View, state: WatchState, repos: tuple[str, ...]
+) -> Watcher:
+    if settings.chat_id is None:
+        raise ConfigError("Не задан TELEGRAM_CHAT_ID: некуда слать уведомления")
+    target = ChatTarget(settings.chat_id, settings.thread_id)
+    notifier = ChatNotifier(bot, target, view, ChatPolicy(settings.notify_build_success))
+    return Watcher(RepoScanner(github, state), state, repos, [notifier], interval=settings.poll_interval)

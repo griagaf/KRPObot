@@ -1,25 +1,15 @@
-"""Шлёт в чат по примеру каждой карточки: посмотреть оформление без событий в GitHub и без CI.
+"""Демо-режим (changelog-bot --demo): команда /demo присылает по примеру каждой карточки.
 
-    python -m bot.demo                 # в TELEGRAM_CHAT_ID, а если его нет — в чат, откуда первым напишут боту
-    python -m bot.demo --login octocat # вы автор PR и адресат 🔔; с /link увидите настоящую отметку
-
-Нужен только TELEGRAM_BOT_TOKEN. Основной бот на время демо остановите: Telegram отдаёт
-сообщения только одному получателю.
+Помогает посмотреть оформление без событий в GitHub и без CI.
 """
 
-import argparse
-import asyncio
-import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
-from aiogram import Bot
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from dotenv import load_dotenv
+from aiogram import Bot, Router
+from aiogram.filters import Command
+from aiogram.types import BotCommand, Message
 
-from bot import db
-from bot.config import parse_chat_id
 from bot.domain.events import (
     BuildFinished,
     CodeCommented,
@@ -40,20 +30,47 @@ from bot.domain.models import (
     User,
     WorkflowRun,
 )
-from bot.people import PeopleStore
-from bot.telegram.handlers import COMMANDS
+from bot.people import PeopleService
+from bot.telegram import handlers
+from bot.telegram.handlers.common import HELP
 from bot.telegram.notifier import ChatNotifier, ChatTarget
 from bot.telegram.policy import ChatPolicy
 from bot.telegram.view import View
 
-ORG = "dejaview-nsu"
+COMMANDS = [BotCommand(command="demo", description="Примеры всех карточек уведомлений"), *handlers.COMMANDS]
+DEMO_HELP = (
+    "🧪 <b>Демо-режим</b>: за репозиториями не слежу.\n"
+    "/demo — прислать примеры всех карточек. Если сделать /link, автором PR в примерах будешь ты.\n\n" + HELP
+)
+
 REPO = "dejaview-backend"
-REPO_URL = f"https://github.com/{ORG}/{REPO}"
+REPO_URL = f"https://github.com/dejaview-nsu/{REPO}"
+DEFAULT_AUTHOR = "student-demo"
 MENTOR = User("mentor-demo")
-NOW = datetime.now(UTC)
+
+
+def build_router() -> Router:
+    router = Router(name="demo")
+    router.message.register(show_demo_help, Command("start", "help"))
+    router.message.register(send_demo_cards, Command("demo"))
+    return router
+
+
+async def show_demo_help(message: Message) -> None:
+    await message.answer(DEMO_HELP)
+
+
+async def send_demo_cards(message: Message, bot: Bot, people: PeopleService, view: View) -> None:
+    linked = people.find_by_telegram(message.from_user.id) if message.from_user else None
+    author = User(linked.github_login if linked else DEFAULT_AUTHOR)
+    thread_id = message.message_thread_id if message.is_topic_message else None
+    notifier = ChatNotifier(bot, ChatTarget(message.chat.id, thread_id), view, ChatPolicy(notify_build_success=True))
+    for event in sample_events(author):
+        await notifier.handle(event)
 
 
 def sample_events(author: User) -> list[RepoEvent]:
+    now = datetime.now(UTC)
     pr = PullRequest(
         id=1,
         number=12,
@@ -66,14 +83,14 @@ def sample_events(author: User) -> list[RepoEvent]:
         is_open=True,
         is_draft=False,
         requested_reviewers=(MENTOR.login,),
-        created_at=NOW,
-        updated_at=NOW,
+        created_at=now,
+        updated_at=now,
         closed_at=None,
         merged_at=None,
     )
-    merged = replace(pr, is_open=False, closed_at=NOW, merged_at=NOW)
+    merged = replace(pr, is_open=False, closed_at=now, merged_at=now)
     code_comments = tuple(
-        ReviewComment(i, 5, 12, path, body, MENTOR, f"{REPO_URL}/pull/12#discussion_r{i}", NOW)
+        ReviewComment(i, 5, 12, path, body, MENTOR, f"{REPO_URL}/pull/12#discussion_r{i}", now)
         for i, path, body in [
             (1, "src/search/handler.cpp", "Лучше назвать find_by_frame"),
             (2, "src/api/routes.cpp", "Здесь нужен таймаут"),
@@ -81,7 +98,7 @@ def sample_events(author: User) -> list[RepoEvent]:
     )
 
     def review(state: ReviewState, body: str) -> Review:
-        return Review(5, state, body, MENTOR, f"{REPO_URL}/pull/12#pullrequestreview-5", NOW)
+        return Review(5, state, body, MENTOR, f"{REPO_URL}/pull/12#pullrequestreview-5", now)
 
     def run(conclusion: str, number: int) -> WorkflowRun:
         return WorkflowRun(
@@ -96,8 +113,8 @@ def sample_events(author: User) -> list[RepoEvent]:
             repo_url=REPO_URL,
             actor=author,
             pr_numbers=(12,),
-            started_at=NOW - timedelta(minutes=2, seconds=13),
-            finished_at=NOW,
+            started_at=now - timedelta(minutes=2, seconds=13),
+            finished_at=now,
         )
 
     return [
@@ -120,55 +137,8 @@ def sample_events(author: User) -> list[RepoEvent]:
         PullRequestCommented(
             REPO,
             pr,
-            PullRequestComment(9, 12, "Поправил, посмотри ещё раз", author, f"{REPO_URL}/pull/12", NOW),
+            PullRequestComment(9, 12, "Поправил, посмотри ещё раз", author, f"{REPO_URL}/pull/12", now),
         ),
         ReviewSubmitted(REPO, pr, review(ReviewState.APPROVED, "Отлично, только поправь нейминг"), code_comments),
         PullRequestMerged(REPO, merged),
     ]
-
-
-async def wait_for_chat(bot: Bot) -> ChatTarget:
-    print("TELEGRAM_CHAT_ID не задан. Напишите боту что угодно в личку или в нужную тему группы…")
-    offset = None
-    while True:
-        for update in await bot.get_updates(offset=offset, timeout=50):
-            offset = update.update_id + 1
-            if message := update.message:
-                thread = message.message_thread_id if message.is_topic_message else None
-                print(f"TELEGRAM_CHAT_ID={message.chat.id}" + (f"\nTELEGRAM_THREAD_ID={thread}" if thread else ""))
-                await bot.get_updates(offset=offset, timeout=0)  # подтверждаем, чтобы бот не увидел его снова
-                return ChatTarget(message.chat.id, thread)
-
-
-async def main(login: str) -> None:
-    load_dotenv()
-    bot = Bot(
-        os.environ["TELEGRAM_BOT_TOKEN"],
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True),
-    )
-    connection = db.connect(os.getenv("DB_PATH", "bot.sqlite3"))
-    try:
-        await bot.set_my_commands(COMMANDS)
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        thread_id = os.getenv("TELEGRAM_THREAD_ID")
-        target = (
-            ChatTarget(parse_chat_id(chat_id), int(thread_id) if thread_id else None)
-            if chat_id
-            else await wait_for_chat(bot)
-        )
-        redmine_url = os.getenv("REDMINE_URL", "https://ai.nsu.ru").rstrip("/")
-        view = View(PeopleStore(connection), lambda task: f"{redmine_url}/issues/{task}", ORG)
-        notifier = ChatNotifier(bot, target, view, ChatPolicy(notify_build_success=True))
-        events = sample_events(User(login))
-        for event in events:
-            await notifier.handle(event)
-        print(f"Готово: отправлено {len(events)} карточек")
-    finally:
-        await bot.session.close()
-        connection.close()
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--login", default="student-demo", help="GitHub-логин автора PR в примерах")
-    asyncio.run(main(parser.parse_args().login))
