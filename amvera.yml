@@ -4,11 +4,13 @@ meta:
     name: docker
     version: latest
 
+# образ собирает GitHub Actions: сборке на Amvera не хватает ресурсов младших тарифов
 build:
-  dockerfile: Dockerfile
-  skip: false
+  skip: true
 
 run:
+  # CI при деплое подставляет сюда тег коммита, чтобы Amvera точно скачала новый образ
+  image: ghcr.io/griagaf/krpobot:latest
   # постоянное хранилище Amvera; туда же смотрит DB_PATH из Dockerfile
   persistenceMount: /data
   # бот не принимает входящих соединений, но Amvera ждёт порт в конфиге

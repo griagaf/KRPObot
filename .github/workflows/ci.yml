@@ -26,16 +26,44 @@ jobs:
     needs: check
     if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     # два деплоя подряд не должны толкаться в Amvera одновременно
     concurrency:
       group: amvera-deploy
       cancel-in-progress: false
+    env:
+      IMAGE: ghcr.io/griagaf/krpobot
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # из shallow-клона пуш в чужой репозиторий отклоняется
-      # Репозиторий Amvera — зеркало: источник правды GitHub, поэтому --force.
-      # Amvera собирает Dockerfile и перезапускает бота после каждого пуша в свой master
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Amvera перезапускает бота после пуша в свой master, а образ берёт из run.image.
+      # Коммит с тегом остаётся только в репозитории Amvera, в GitHub его нет
+      - name: Pin image tag in amvera.yml
+        run: |
+          sed -i "s|^\(\s*image:\).*|\1 $IMAGE:$GITHUB_SHA|" amvera.yml
+          grep -q "image: $IMAGE:$GITHUB_SHA" amvera.yml
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -qam "deploy $GITHUB_SHA"
+      # Репозиторий Amvera — зеркало: источник правды GitHub, поэтому --force
       - name: Push to Amvera
         env:
           AMVERA_REPO_URL: ${{ vars.AMVERA_REPO_URL }}
