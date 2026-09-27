@@ -108,8 +108,9 @@ docker run -d --env-file .env -v changelog-bot-data:/data --restart unless-stopp
 ## Деплой в Amvera
 
 Пуш в `master` запускает GitHub Actions ([ci.yml](.github/workflows/ci.yml)): ruff, mypy, pytest, и если всё
-зелёное — код пушится в git-репозиторий Amvera. Amvera собирает `Dockerfile` и перезапускает бота. На PR
-запускаются только проверки.
+зелёное — Actions собирает образ, публикует его в `ghcr.io/griagaf/krpobot` и пушит в git-репозиторий Amvera
+[amvera.yml](amvera.yml) с тегом этого коммита. Amvera сама ничего не собирает (сборке не хватает ресурсов
+младших тарифов), а скачивает образ и перезапускает бота. На PR запускаются только проверки.
 
 Настройка один раз:
 
@@ -118,6 +119,8 @@ docker run -d --env-file .env -v changelog-bot-data:/data --restart unless-stopp
 2. В GitHub → Settings → Secrets and variables → Actions:
    - Variables: `AMVERA_REPO_URL` — адрес git с вкладки «Репозиторий» проекта в Amvera;
    - Secrets: `AMVERA_USERNAME`, `AMVERA_PASSWORD` — логин и пароль учётной записи Amvera.
+3. После первого деплоя сделать образ публичным, иначе Amvera его не скачает: профиль GitHub → Packages →
+   `krpobot` → Package settings → Change visibility → Public. В образе только код, токены в него не попадают.
 
 Бот с тем же `TELEGRAM_BOT_TOKEN` должен работать в одном экземпляре: перед деплоем остановите локальный.
 
