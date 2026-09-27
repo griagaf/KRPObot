@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from dotenv import find_dotenv, load_dotenv
 
 REQUIRED = ("TELEGRAM_BOT_TOKEN",)
-REQUIRED_FOR_WATCHING = ("TELEGRAM_CHAT_ID", "GITHUB_TOKEN")
+REQUIRED_FOR_WATCHING = ("GITHUB_TOKEN",)
 CI_NOTIFY_MODES = ("all", "failures")
 
 
