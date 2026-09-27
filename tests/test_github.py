@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -6,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from bot.domain.models import ReviewRequests
 from bot.github import GitHubClient, GitHubError, NotFoundError, parsing
 from tests import factories as f
 
@@ -105,3 +107,44 @@ def test_merged_pulls_stops_paging_once_older_than_period():
     result = asyncio.run(scenario())
     assert len(result) == 99
     assert pages == ["1"]
+
+
+def test_codeowners_is_looked_up_where_github_looks_on_base_branch():
+    asked = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append((request.url.path.split("/contents/")[1], request.url.params["ref"]))
+        if request.url.path.endswith("/contents/CODEOWNERS"):
+            content = base64.b64encode(b"* @skpntsv @dejaview-nsu/maintainers\n").decode()
+            return httpx.Response(200, json={"content": content, "encoding": "base64"})
+        return httpx.Response(404)
+
+    async def scenario():
+        async with client(handler) as github:
+            return await github.code_owners("dejaview-ml", "main")
+
+    owners = asyncio.run(scenario())
+    assert owners is not None and owners.owners(["a.py"]) == ReviewRequests(("skpntsv",), ("maintainers",))
+    assert asked == [(".github/CODEOWNERS", "main"), ("CODEOWNERS", "main")]
+
+
+def test_repo_without_codeowners():
+    async def scenario():
+        async with client(lambda request: httpx.Response(404)) as github:
+            return await github.code_owners("dejaview-ml", "main")
+
+    assert asyncio.run(scenario()) is None
+
+
+def test_pull_files_are_read_page_by_page():
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params["page"])
+        count = 100 if page == 1 else 3
+        return httpx.Response(200, json=[{"filename": f"p{page}/{i}.py"} for i in range(count)])
+
+    async def scenario():
+        async with client(handler) as github:
+            return await github.pull_files("dejaview-ml", 12)
+
+    files = asyncio.run(scenario())
+    assert len(files) == 103 and files[-1] == "p2/2.py"

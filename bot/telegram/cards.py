@@ -75,10 +75,13 @@ def _bell(
     return f"🔔 {', '.join(parts)}{suffix}" if parts else ""
 
 
-def _review_bell(view: View, requests: ReviewRequests, *, actor: str | None = None, suffix: str = "") -> str:
-    """Ревьюеры вместе с участниками запрошенных команд. Команду без заданного состава показываем ссылкой."""
-    teams = [view.team(team) for team in view.project.unknown_teams(requests)]
-    return _bell(view, view.project.reviewers(requests), actor=actor, suffix=suffix, extra=teams)
+def _review_bell(
+    view: View, pr: PullRequest, requests: ReviewRequests, code_owners: ReviewRequests, *, suffix: str = ""
+) -> str:
+    """Кого просят о ревью, с командами по правилам Project. Команду без заданного состава показываем ссылкой."""
+    reviewers = view.project.reviewers(requests, code_owners, author=pr.author.login)
+    teams = [view.team(team) for team in reviewers.teams_without_members]
+    return _bell(view, reviewers.logins, actor=pr.author.login, suffix=suffix, extra=teams)
 
 
 def _comments_count(n: int) -> str:
@@ -106,7 +109,7 @@ def _pull_request_opened(event: PullRequestOpened, view: View) -> str:
     return card(
         [_header(event, view, title), _pr_title(pr)],
         [f"👤 {view.name(pr.author.login)}", _branches(pr), _task(pr, view)],
-        _review_bell(view, requests, actor=pr.author.login, suffix=" — ждём ревью"),
+        _review_bell(view, pr, requests, event.code_owners, suffix=" — ждём ревью"),
     )
 
 
@@ -114,7 +117,7 @@ def _review_requested(event: ReviewRequested, view: View) -> str:
     return card(
         [_header(event, view, "👀 <b>Запрошено ревью</b>"), _pr_title(event.pr)],
         [f"👤 {view.name(event.pr.author.login)}", _branches(event.pr)],
-        _review_bell(view, event.requests, actor=event.pr.author.login),
+        _review_bell(view, event.pr, event.requests, event.code_owners),
     )
 
 

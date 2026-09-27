@@ -130,3 +130,10 @@ def test_person_with_username_is_mentioned_by_it():
 def test_task_done_status_comes_from_project():
     view = f.view(project=replace(f.PROJECT, task_done_status="Решена"))
     assert "в Решена со ссылкой" in cards.render(PullRequestMerged(REPO, f.merged_pr()), view)
+
+
+def test_team_request_pings_personal_code_owner_only():
+    project = replace(f.PROJECT, teams={"maintainers": ("mentor", "lead")})
+    owners = ReviewRequests(("mentor",), ("maintainers",))
+    text = cards.render(PullRequestOpened(REPO, f.pr(teams=("maintainers",)), owners), f.view(("mentor",), project))
+    assert text.endswith('🔔 <a href="tg://user?id=1">Mentor</a> — ждём ревью')

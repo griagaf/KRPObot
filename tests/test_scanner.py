@@ -3,6 +3,7 @@ import sqlite3
 
 import pytest
 
+from bot.domain.codeowners import CodeOwners
 from bot.domain.events import (
     BuildFinished,
     CodeCommented,
@@ -118,3 +119,43 @@ def test_remembered_reviewers_of_previous_version_are_read():
     state = WatchState(db)
     db.execute("INSERT INTO pull_requests VALUES (1012, '2026-10-01T10:00:00+00:00', '[\"mentor\"]')")
     assert state.known_review_requests(1012) == ReviewRequests(users=("mentor",))
+
+
+ML_CODEOWNERS = CodeOwners.parse("* @skpntsv @dejaview-nsu/maintainers\n/docs/ @writer")
+
+
+def test_team_review_request_brings_owners_of_changed_files(github, state):
+    github.codeowners = ML_CODEOWNERS
+    github.pulls = [f.pr(teams=("maintainers",))]
+    github.files = {12: ["src/model.py", "docs/api.md"]}
+    [event] = scan(github, state).events
+    assert isinstance(event, PullRequestOpened)
+    assert event.code_owners == ReviewRequests(("skpntsv", "writer"), ("maintainers",))
+    assert github.fetched_codeowners == ["main"]  # CODEOWNERS базовой ветки, как у GitHub
+
+
+@pytest.mark.parametrize(
+    ("pr", "fetch_details"),
+    [
+        (f.pr(reviewers=("mentor",)), True),  # команду не просили — владельцы не нужны
+        (f.pr(teams=("maintainers",), draft=True), True),  # черновик никого не отмечает
+        (f.pr(teams=("maintainers",)), False),  # первый проход: событие не опубликуют
+    ],
+)
+def test_owners_are_fetched_only_when_they_matter(github, state, pr, fetch_details):
+    github.codeowners = ML_CODEOWNERS
+    github.pulls = [pr]
+    [event] = scan(github, state, fetch_details=fetch_details).events
+    assert event.code_owners == ReviewRequests()
+    assert github.fetched_codeowners == []
+
+
+def test_team_added_later_brings_owners_too(github, state):
+    github.pulls = [f.pr()]
+    state.mark_seen(e.keys[0] for e in scan(github, state).events)
+    state.remember_pulls(github.pulls)
+    github.codeowners = ML_CODEOWNERS
+    github.files = {12: ["src/model.py"]}
+    github.pulls = [f.pr(teams=("maintainers",), updated_at="2026-10-01T13:00:00Z")]
+    [event] = scan(github, state).events
+    assert isinstance(event, ReviewRequested) and event.code_owners.users == ("skpntsv",)

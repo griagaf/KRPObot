@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from bot.domain.events import (
@@ -78,7 +78,7 @@ class RepoScanner:
         pulls = await self._github.recent_pulls(repo)
         index = _PullIndex(self._github, repo, pulls)
         events: list[RepoEvent] = [
-            *self._pull_request_events(repo, pulls),
+            *await self._pull_request_events(repo, pulls, fetch_details=fetch_details),
             *await self._build_events(repo, fetch_details=fetch_details),
             *await self._review_events(repo, pulls, index),
             *await self._discussion_events(repo, index),
@@ -86,14 +86,32 @@ class RepoScanner:
         events.sort(key=lambda event: event.occurred_at)
         return Scan(tuple(events), tuple(pulls))
 
-    def _pull_request_events(self, repo: str, pulls: Sequence[PullRequest]) -> Iterator[RepoEvent]:
+    async def _pull_request_events(
+        self, repo: str, pulls: Sequence[PullRequest], *, fetch_details: bool
+    ) -> list[RepoEvent]:
+        events: list[RepoEvent] = []
         for pr in pulls:
             if not self._state.is_seen(pr_opened_key(pr)):
-                yield PullRequestOpened(repo, pr)
+                requests = ReviewRequests() if pr.is_draft else pr.review_requests
+                owners = await self._code_owners(repo, pr, requests, fetch_details=fetch_details)
+                events.append(PullRequestOpened(repo, pr, owners))
             elif pr.is_open and (added := added_review_requests(pr, self._state.known_review_requests(pr.id))):
-                yield ReviewRequested(repo, pr, added)
+                owners = await self._code_owners(repo, pr, added, fetch_details=fetch_details)
+                events.append(ReviewRequested(repo, pr, added, owners))
             if not pr.is_open and not self._state.is_seen(pr_finished_key(pr)):
-                yield PullRequestMerged(repo, pr) if pr.merged_at else PullRequestClosed(repo, pr)
+                events.append(PullRequestMerged(repo, pr) if pr.merged_at else PullRequestClosed(repo, pr))
+        return events
+
+    async def _code_owners(
+        self, repo: str, pr: PullRequest, requests: ReviewRequests, *, fetch_details: bool
+    ) -> ReviewRequests:
+        """Владельцы изменённых файлов. Нужны, только когда ревью просят у команды: из неё отметим владельцев."""
+        if not (fetch_details and requests.teams):
+            return ReviewRequests()
+        rules = await self._github.code_owners(repo, pr.base)
+        if rules is None:
+            return ReviewRequests()
+        return rules.owners(await self._github.pull_files(repo, pr.number))
 
     async def _build_events(self, repo: str, *, fetch_details: bool) -> list[RepoEvent]:
         events: list[RepoEvent] = []

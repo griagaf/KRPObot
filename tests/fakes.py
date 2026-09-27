@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from bot.domain.codeowners import CodeOwners
 from bot.domain.models import FailedJob, PullRequest, PullRequestComment, Review, ReviewComment, WorkflowRun
 from bot.github import NotFoundError
 
@@ -17,6 +18,9 @@ class FakeGitHub:
         self.jobs: dict[int, list[FailedJob]] = {}
         self.merged: dict[str, list[PullRequest]] = {}
         self.users: set[str] = set()
+        self.codeowners: CodeOwners | None = None
+        self.files: dict[int, list[str]] = {}
+        self.fetched_codeowners: list[str] = []  # ветки, из которых читали CODEOWNERS
         self.fetched_pulls: list[int] = []
         self.fetched_jobs: list[int] = []
 
@@ -45,6 +49,13 @@ class FakeGitHub:
 
     async def merged_pulls(self, repo: str, since: datetime, until: datetime) -> list[PullRequest]:
         return [pr for pr in self.merged.get(repo, []) if pr.merged_at and since <= pr.merged_at <= until]
+
+    async def code_owners(self, repo: str, ref: str) -> CodeOwners | None:
+        self.fetched_codeowners.append(ref)
+        return self.codeowners
+
+    async def pull_files(self, repo: str, number: int) -> list[str]:
+        return self.files.get(number, [])
 
     async def user_login(self, login: str) -> str:
         for known in self.users:

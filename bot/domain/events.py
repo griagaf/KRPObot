@@ -1,7 +1,7 @@
 """События в репозиториях. Сканер их находит, обработчики реагируют: чат, в будущем Redmine."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from bot.domain.models import (
@@ -57,6 +57,8 @@ class RepoEvent(ABC):
 @dataclass(frozen=True)
 class PullRequestOpened(RepoEvent):
     pr: PullRequest
+    # владельцы изменённых файлов по CODEOWNERS; сканер узнаёт их, только когда ревью просят у команды
+    code_owners: ReviewRequests = field(default_factory=ReviewRequests)
 
     @property
     def keys(self) -> tuple[str, ...]:
@@ -71,6 +73,7 @@ class PullRequestOpened(RepoEvent):
 class ReviewRequested(RepoEvent):
     pr: PullRequest
     requests: ReviewRequests  # только добавленные с прошлого опроса
+    code_owners: ReviewRequests = field(default_factory=ReviewRequests)  # как у PullRequestOpened
 
     @property
     def keys(self) -> tuple[str, ...]:

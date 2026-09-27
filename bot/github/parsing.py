@@ -1,8 +1,10 @@
 """JSON GitHub REST API → модели. Единственное место, которое знает форму ответов GitHub."""
 
+import base64
 from datetime import datetime
 from typing import Any
 
+from bot.domain.codeowners import CodeOwners
 from bot.domain.models import (
     FAILED_CONCLUSIONS,
     FailedJob,
@@ -122,3 +124,8 @@ def failed_job(data: Json) -> FailedJob | None:
     steps = data.get("steps") or []
     step = next((s["name"] for s in steps if s.get("conclusion") in FAILED_CONCLUSIONS), None)
     return FailedJob(data["name"], step)
+
+
+def code_owners(data: Json) -> CodeOwners:
+    """Ответ contents API: текст файла в base64."""
+    return CodeOwners.parse(base64.b64decode(data["content"]).decode("utf-8", errors="replace"))
