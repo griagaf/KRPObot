@@ -34,12 +34,12 @@ async def run(settings: Settings, *, demo_mode: bool = False) -> None:
         # До обращений к GitHub: меню команд появится, даже если GitHub недоступен.
         await bot.set_my_commands(demo.COMMANDS if demo_mode else COMMANDS)
         async with (
-            GitHubClient(settings.github_token, settings.github_org) as github,
+            GitHubClient(settings.github_token, settings.project.org) as github,
             RedmineClient(settings.redmine_url, settings.redmine_api_key) as redmine,
         ):
             repos = settings.repos or tuple(await github.org_repos())
             people = PeopleStore(connection)
-            view = View(people, redmine.issue_url, settings.github_org)
+            view = View(people, redmine.issue_url, settings.project)
             dispatcher = Dispatcher(
                 people=PeopleService(people, github),
                 changelog=ChangelogService(github, redmine, repos, settings.timezone),

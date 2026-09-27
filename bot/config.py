@@ -5,7 +5,9 @@ from zoneinfo import ZoneInfo
 
 from dotenv import find_dotenv, load_dotenv
 
-REQUIRED = ("TELEGRAM_BOT_TOKEN",)
+from bot.domain.project import Project
+
+REQUIRED = ("TELEGRAM_BOT_TOKEN", "GITHUB_ORG")
 REQUIRED_FOR_WATCHING = ("GITHUB_TOKEN",)
 CI_NOTIFY_MODES = ("all", "failures")
 
@@ -19,13 +21,27 @@ def parse_chat_id(value: str) -> int | str:
     return int(value) if value.lstrip("-").isdigit() else value
 
 
+def parse_teams(value: str) -> dict[str, tuple[str, ...]]:
+    """«maintainers=alice,bob; backend=carol» → {команда: логины}. Команду можно писать как в CODEOWNERS:
+    @org/maintainers."""
+    teams: dict[str, tuple[str, ...]] = {}
+    for entry in filter(None, (part.strip() for part in value.split(";"))):
+        team, has_members, logins = entry.partition("=")
+        name = team.strip().removeprefix("@").rsplit("/", 1)[-1].lower()
+        members = tuple(login.strip().removeprefix("@") for login in logins.split(",") if login.strip())
+        if not has_members or not name or not members:
+            raise ConfigError(f"GITHUB_TEAMS: не понял «{entry}», нужно команда=логин,логин")
+        teams[name] = members
+    return teams
+
+
 @dataclass(frozen=True)
 class Settings:
     telegram_token: str
     chat_id: int | str | None  # куда слать уведомления; без него работают только команды
     thread_id: int | None
     github_token: str
-    github_org: str
+    project: Project
     repos: tuple[str, ...]
     poll_interval: int
     notify_build_success: bool
@@ -47,6 +63,15 @@ class Settings:
         if ci_notify not in CI_NOTIFY_MODES:
             raise ConfigError(f"CI_NOTIFY должен быть одним из: {', '.join(CI_NOTIFY_MODES)}")
 
+        org = os.environ["GITHUB_ORG"]
+        # dejaview-nsu -> dejaview-: у репозиториев организации обычно общий префикс
+        repo_prefix = os.getenv("REPO_PREFIX")
+        project = Project(
+            org=org,
+            repo_prefix=org.split("-")[0] + "-" if repo_prefix is None else repo_prefix,
+            teams=parse_teams(os.getenv("GITHUB_TEAMS", "")),
+            task_done_status=os.getenv("TASK_DONE_STATUS") or "Resolved",
+        )
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         thread_id = os.getenv("TELEGRAM_THREAD_ID")
         return cls(
@@ -54,7 +79,7 @@ class Settings:
             chat_id=parse_chat_id(chat_id) if chat_id else None,
             thread_id=int(thread_id) if thread_id else None,
             github_token=os.getenv("GITHUB_TOKEN", ""),
-            github_org=os.getenv("GITHUB_ORG", "dejaview-nsu"),
+            project=project,
             repos=tuple(r.strip() for r in os.getenv("GITHUB_REPOS", "").split(",") if r.strip()),
             poll_interval=int(os.getenv("POLL_INTERVAL", "60")),
             notify_build_success=ci_notify == "all",

@@ -3,7 +3,7 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import datetime
 
-from bot.domain.models import PullRequest
+from bot.domain.models import PullRequest, ReviewRequests
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS seen_events (key TEXT PRIMARY KEY);
@@ -34,15 +34,21 @@ class WatchState:
         row = self._db.execute("SELECT updated_at FROM pull_requests WHERE id = ?", (pr_id,)).fetchone()
         return datetime.fromisoformat(row[0]) if row else None
 
-    def known_reviewers(self, pr_id: int) -> tuple[str, ...] | None:
+    def known_review_requests(self, pr_id: int) -> ReviewRequests | None:
         row = self._db.execute("SELECT reviewers FROM pull_requests WHERE id = ?", (pr_id,)).fetchone()
-        return tuple(json.loads(row[0])) if row else None
+        if row is None:
+            return None
+        stored = json.loads(row[0])
+        # прежние версии хранили только список логинов
+        if isinstance(stored, list):
+            return ReviewRequests(users=tuple(stored))
+        return ReviewRequests(tuple(stored["users"]), tuple(stored["teams"]))
 
     def remember_pulls(self, pulls: Iterable[PullRequest]) -> None:
         with self._db:
             self._db.executemany(
                 "INSERT OR REPLACE INTO pull_requests (id, updated_at, reviewers) VALUES (?, ?, ?)",
-                ((pr.id, pr.updated_at.isoformat(), json.dumps(pr.requested_reviewers)) for pr in pulls),
+                ((pr.id, pr.updated_at.isoformat(), _dump_requests(pr.review_requests)) for pr in pulls),
             )
 
     def watching_since(self, repo: str) -> datetime | None:
@@ -54,3 +60,7 @@ class WatchState:
             self._db.execute(
                 "INSERT OR REPLACE INTO watched_repos (repo, since) VALUES (?, ?)", (repo, since.isoformat())
             )
+
+
+def _dump_requests(requests: ReviewRequests) -> str:
+    return json.dumps({"users": requests.users, "teams": requests.teams})

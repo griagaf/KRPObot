@@ -6,7 +6,7 @@ from tests import factories as f
 
 
 def test_every_demo_card_passes_policy_and_renders():
-    events = sample_events(User("student"))
+    events = sample_events(User("student"), f.PROJECT)
     view = f.view(("student",))
     assert all(ChatPolicy(notify_build_success=True).allows(e) for e in events)
     for event in events:

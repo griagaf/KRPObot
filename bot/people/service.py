@@ -31,7 +31,7 @@ class PeopleService:
         self._store = store
         self._github = github
 
-    async def link(self, login: str, tg_id: int, tg_name: str) -> Person:
+    async def link(self, login: str, tg_id: int, tg_name: str, tg_username: str | None = None) -> Person:
         login = login.strip().removeprefix("@")
         if not GITHUB_LOGIN.fullmatch(login):
             raise InvalidLoginError(login)
@@ -43,7 +43,7 @@ class PeopleService:
         owner = self._store.find(login)
         if owner is not None and owner.tg_id != tg_id:
             raise LoginTakenError(owner)
-        person = Person(login, tg_id, tg_name)
+        person = Person(login, tg_id, tg_name, tg_username)
         self._store.save(person)
         return person
 

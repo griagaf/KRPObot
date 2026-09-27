@@ -15,7 +15,7 @@ from bot.domain.events import (
     ReviewRequested,
     ReviewSubmitted,
 )
-from bot.domain.models import PullRequest, ReviewComment, ReviewState
+from bot.domain.models import PullRequest, ReviewComment, ReviewRequests, ReviewState
 from bot.telegram.markup import card, code, esc, link, plural, quote
 from bot.telegram.view import View
 
@@ -66,10 +66,22 @@ def _task(pr: PullRequest, view: View) -> str:
     return f"📌 {view.task(task, f'Задача #{task}')}" if task else ""
 
 
-def _bell(view: View, logins: Sequence[str], *, actor: str | None = None, suffix: str = "") -> str:
-    """🔔 с упоминаниями. Автора действия не отмечаем: он и так в курсе."""
+def _bell(
+    view: View, logins: Sequence[str], *, actor: str | None = None, suffix: str = "", extra: Sequence[str] = ()
+) -> str:
+    """🔔 с упоминаниями и extra — уже готовым HTML. Автора действия не отмечаем: он и так в курсе."""
     targets = [login for login in dict.fromkeys(logins) if login.lower() != (actor or "").lower()]
-    return f"🔔 {view.mentions(targets)}{suffix}" if targets else ""
+    parts = [view.mention(login) for login in targets] + list(extra)
+    return f"🔔 {', '.join(parts)}{suffix}" if parts else ""
+
+
+def _review_bell(
+    view: View, pr: PullRequest, requests: ReviewRequests, code_owners: ReviewRequests, *, suffix: str = ""
+) -> str:
+    """Кого просят о ревью, с командами по правилам Project. Команду без заданного состава показываем ссылкой."""
+    reviewers = view.project.reviewers(requests, code_owners, author=pr.author.login)
+    teams = [view.team(team) for team in reviewers.teams_without_members]
+    return _bell(view, reviewers.logins, actor=pr.author.login, suffix=suffix, extra=teams)
 
 
 def _comments_count(n: int) -> str:
@@ -93,11 +105,11 @@ def _duration(value: timedelta) -> str:
 def _pull_request_opened(event: PullRequestOpened, view: View) -> str:
     pr = event.pr
     title = "📝 <b>Черновик PR</b>" if pr.is_draft else "🆕 <b>Новый PR</b>"
-    reviewers = () if pr.is_draft else pr.requested_reviewers
+    requests = ReviewRequests() if pr.is_draft else pr.review_requests
     return card(
         [_header(event, view, title), _pr_title(pr)],
         [f"👤 {view.name(pr.author.login)}", _branches(pr), _task(pr, view)],
-        _bell(view, reviewers, actor=pr.author.login, suffix=" — ждём ревью"),
+        _review_bell(view, pr, requests, event.code_owners, suffix=" — ждём ревью"),
     )
 
 
@@ -105,16 +117,17 @@ def _review_requested(event: ReviewRequested, view: View) -> str:
     return card(
         [_header(event, view, "👀 <b>Запрошено ревью</b>"), _pr_title(event.pr)],
         [f"👤 {view.name(event.pr.author.login)}", _branches(event.pr)],
-        _bell(view, event.reviewers),
+        _review_bell(view, event.pr, event.requests, event.code_owners),
     )
 
 
 def _pull_request_merged(event: PullRequestMerged, view: View) -> str:
     pr = event.pr
     task = task_id(pr)
-    reminder = (
-        f"🔔 {view.mention(pr.author.login)}, переведи {view.task(task)} в Resolved со ссылкой на PR" if task else ""
-    )
+    reminder = ""
+    if task:
+        status = esc(view.project.task_done_status)
+        reminder = f"🔔 {view.mention(pr.author.login)}, переведи {view.task(task)} в {status} со ссылкой на PR"
     return card(
         [_header(event, view, "🟣 <b>PR влит</b>"), _pr_title(pr)],
         [f"👤 {view.name(pr.author.login)}", _branches(pr)],

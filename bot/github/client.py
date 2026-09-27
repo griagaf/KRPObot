@@ -5,11 +5,14 @@ from urllib.parse import urlencode
 
 import httpx
 
+from bot.domain.codeowners import CodeOwners
 from bot.domain.models import FailedJob, PullRequest, PullRequestComment, Review, ReviewComment, WorkflowRun
 from bot.github import parsing
 
 API_URL = "https://api.github.com"
 PAGE_SIZE = 100
+MAX_PULL_FILES = 3000  # больше файлов PR GitHub не отдаёт
+CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")  # в этом порядке ищет GitHub
 
 
 class GitHubError(Exception):
@@ -86,6 +89,25 @@ class GitHubClient:
 
     async def pull(self, repo: str, number: int) -> PullRequest:
         return parsing.pull_request(await self._get(f"{self._repo(repo)}/pulls/{number}"))
+
+    async def pull_files(self, repo: str, number: int) -> list[str]:
+        files: list[str] = []
+        for page in range(1, MAX_PULL_FILES // PAGE_SIZE + 1):
+            batch = await self._get(f"{self._repo(repo)}/pulls/{number}/files", per_page=PAGE_SIZE, page=page)
+            files += [f["filename"] for f in batch]
+            if len(batch) < PAGE_SIZE:
+                break
+        return files
+
+    async def code_owners(self, repo: str, ref: str) -> CodeOwners | None:
+        """CODEOWNERS ветки ref оттуда же, откуда его берёт GitHub; None, если файла нет."""
+        for path in CODEOWNERS_PATHS:
+            try:
+                body = await self._get(f"{self._repo(repo)}/contents/{path}", conditional=True, ref=ref)
+            except NotFoundError:
+                continue
+            return parsing.code_owners(body)
+        return None
 
     async def pull_reviews(self, repo: str, number: int) -> list[Review]:
         reviews = await self._get(f"{self._repo(repo)}/pulls/{number}/reviews", per_page=PAGE_SIZE)

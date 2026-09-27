@@ -1,8 +1,10 @@
 """JSON GitHub REST API → модели. Единственное место, которое знает форму ответов GitHub."""
 
+import base64
 from datetime import datetime
 from typing import Any
 
+from bot.domain.codeowners import CodeOwners
 from bot.domain.models import (
     FAILED_CONCLUSIONS,
     FailedJob,
@@ -10,6 +12,7 @@ from bot.domain.models import (
     PullRequestComment,
     Review,
     ReviewComment,
+    ReviewRequests,
     User,
     WorkflowRun,
 )
@@ -45,7 +48,10 @@ def pull_request(data: Json) -> PullRequest:
         base=data["base"]["ref"],
         is_open=data["state"] == "open",
         is_draft=bool(data.get("draft")),
-        requested_reviewers=tuple(sorted(u["login"] for u in data.get("requested_reviewers") or [])),
+        review_requests=ReviewRequests(
+            users=tuple(sorted(u["login"] for u in data.get("requested_reviewers") or [])),
+            teams=tuple(sorted(t["slug"] for t in data.get("requested_teams") or [])),
+        ),
         created_at=_time(data["created_at"]),
         updated_at=_time(data["updated_at"]),
         closed_at=_optional_time(data.get("closed_at")),
@@ -118,3 +124,8 @@ def failed_job(data: Json) -> FailedJob | None:
     steps = data.get("steps") or []
     step = next((s["name"] for s in steps if s.get("conclusion") in FAILED_CONCLUSIONS), None)
     return FailedJob(data["name"], step)
+
+
+def code_owners(data: Json) -> CodeOwners:
+    """Ответ contents API: текст файла в base64."""
+    return CodeOwners.parse(base64.b64decode(data["content"]).decode("utf-8", errors="replace"))
