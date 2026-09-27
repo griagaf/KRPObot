@@ -102,6 +102,22 @@ docker run -d --env-file .env -v changelog-bot-data:/data --restart unless-stopp
 Чтобы получить события, не трогая репозитории команды, заведите тестовый репозиторий у себя:
 `GITHUB_ORG=<ваш логин>`, `GITHUB_REPOS=<репозиторий>`.
 
+## Деплой в Amvera
+
+Пуш в `master` запускает GitHub Actions ([ci.yml](.github/workflows/ci.yml)): ruff, mypy, pytest, и если всё
+зелёное — код пушится в git-репозиторий Amvera. Amvera собирает `Dockerfile` и перезапускает бота. На PR
+запускаются только проверки.
+
+Настройка один раз:
+
+1. В Amvera создать проект с окружением Docker. Переменные из `.env.example` задать на вкладке
+   «Переменные» (токены — как секреты). `DB_PATH` не нужен: база лежит в постоянном хранилище `/data`.
+2. В GitHub → Settings → Secrets and variables → Actions:
+   - Variables: `AMVERA_REPO_URL` — адрес git с вкладки «Репозиторий» проекта в Amvera;
+   - Secrets: `AMVERA_USERNAME`, `AMVERA_PASSWORD` — логин и пароль учётной записи Amvera.
+
+Бот с тем же `TELEGRAM_BOT_TOKEN` должен работать в одном экземпляре: перед деплоем остановите локальный.
+
 ## Разработка
 
 ```sh
