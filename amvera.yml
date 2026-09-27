@@ -6,7 +6,10 @@ meta:
 
 build:
   dockerfile: Dockerfile
+  skip: false
 
 run:
   # постоянное хранилище Amvera; туда же смотрит DB_PATH из Dockerfile
   persistenceMount: /data
+  # бот не принимает входящих соединений, но Amvera ждёт порт в конфиге
+  containerPort: 80
