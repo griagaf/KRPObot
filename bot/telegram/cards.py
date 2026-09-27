@@ -15,6 +15,7 @@ from bot.domain.events import (
     ReviewRequested,
     ReviewSubmitted,
 )
+from bot.domain.mentions import mentions
 from bot.domain.models import PullRequest, ReviewComment, ReviewRequests, ReviewState
 from bot.telegram.markup import card, code, esc, link, plural, quote
 from bot.telegram.view import View
@@ -70,18 +71,35 @@ def _bell(
     view: View, logins: Sequence[str], *, actor: str | None = None, suffix: str = "", extra: Sequence[str] = ()
 ) -> str:
     """🔔 с упоминаниями и extra — уже готовым HTML. Автора действия не отмечаем: он и так в курсе."""
-    targets = [login for login in dict.fromkeys(logins) if login.lower() != (actor or "").lower()]
-    parts = [view.mention(login) for login in targets] + list(extra)
+    targets: dict[str, str] = {}
+    for login in logins:
+        if login.lower() != (actor or "").lower():
+            targets.setdefault(login.lower(), login)  # логины GitHub не зависят от регистра
+    parts = [view.mention(login) for login in targets.values()] + list(extra)
     return f"🔔 {', '.join(parts)}{suffix}" if parts else ""
 
 
 def _review_bell(
-    view: View, pr: PullRequest, requests: ReviewRequests, code_owners: ReviewRequests, *, suffix: str = ""
+    view: View,
+    pr: PullRequest,
+    requests: ReviewRequests,
+    code_owners: ReviewRequests,
+    *,
+    mentioned: Sequence[str] = (),
+    suffix: str = "",
 ) -> str:
     """Кого просят о ревью, с командами по правилам Project. Команду без заданного состава показываем ссылкой."""
     reviewers = view.project.reviewers(requests, code_owners, author=pr.author.login)
     teams = [view.team(team) for team in reviewers.teams_without_members]
-    return _bell(view, reviewers.logins, actor=pr.author.login, suffix=suffix, extra=teams)
+    return _bell(view, [*reviewers.logins, *mentioned], actor=pr.author.login, suffix=suffix, extra=teams)
+
+
+def _mentioned(view: View, *texts: str) -> list[str]:
+    """Кого тегнули через @ на GitHub: связанных с Telegram людей и связанных участников заданных команд.
+    Остальных пропускаем: @ в тексте бывает и не человеком, а отметить в Telegram их всё равно нельзя."""
+    found = mentions(*texts)
+    logins = [*found.users, *(login for team in found.teams for login in view.project.team_members(team))]
+    return [login for login in logins if view.is_linked(login)]
 
 
 def _comments_count(n: int) -> str:
@@ -109,7 +127,14 @@ def _pull_request_opened(event: PullRequestOpened, view: View) -> str:
     return card(
         [_header(event, view, title), _pr_title(pr)],
         [f"👤 {view.name(pr.author.login)}", _branches(pr), _task(pr, view)],
-        _review_bell(view, pr, requests, event.code_owners, suffix=" — ждём ревью"),
+        _review_bell(
+            view,
+            pr,
+            requests,
+            event.code_owners,
+            mentioned=() if pr.is_draft else _mentioned(view, pr.body),
+            suffix=" — ждём ревью",
+        ),
     )
 
 
@@ -158,7 +183,11 @@ def _review_submitted(event: ReviewSubmitted, view: View) -> str:
         [_header(event, view, title), _pr_title(event.pr)],
         details,
         quote(body or (comments[0].body if comments else "")),
-        _bell(view, [event.pr.author.login], actor=review.author.login),
+        _bell(
+            view,
+            [event.pr.author.login, *_mentioned(view, review.body, *(c.body for c in comments))],
+            actor=review.author.login,
+        ),
     )
 
 
@@ -169,7 +198,11 @@ def _code_commented(event: CodeCommented, view: View) -> str:
         [_header(event, view, "💬 <b>Комментарий к коду</b>"), _pr_title(event.pr)],
         [f"👤 {view.name(first.author.login)}{count} · {link(first.url, 'открыть →')}", _files(event.comments)],
         quote(first.body),
-        _bell(view, [event.pr.author.login], actor=first.author.login),
+        _bell(
+            view,
+            [event.pr.author.login, *_mentioned(view, *(c.body for c in event.comments))],
+            actor=first.author.login,
+        ),
     )
 
 
@@ -179,7 +212,7 @@ def _pull_request_commented(event: PullRequestCommented, view: View) -> str:
         [_header(event, view, "💬 <b>Комментарий</b>"), _pr_title(event.pr)],
         f"👤 {view.name(comment.author.login)} · {link(comment.url, 'открыть →')}",
         quote(comment.body),
-        _bell(view, [event.pr.author.login], actor=comment.author.login),
+        _bell(view, [event.pr.author.login, *_mentioned(view, comment.body)], actor=comment.author.login),
     )
 
 
