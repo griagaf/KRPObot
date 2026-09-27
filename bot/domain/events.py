@@ -4,7 +4,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 
-from bot.domain.models import FailedJob, PullRequest, PullRequestComment, Review, ReviewComment, WorkflowRun
+from bot.domain.models import (
+    FailedJob,
+    PullRequest,
+    PullRequestComment,
+    Review,
+    ReviewComment,
+    ReviewRequests,
+    WorkflowRun,
+)
 
 
 def pr_opened_key(pr: PullRequest) -> str:
@@ -62,7 +70,7 @@ class PullRequestOpened(RepoEvent):
 @dataclass(frozen=True)
 class ReviewRequested(RepoEvent):
     pr: PullRequest
-    reviewers: tuple[str, ...]
+    requests: ReviewRequests  # только добавленные с прошлого опроса
 
     @property
     def keys(self) -> tuple[str, ...]:

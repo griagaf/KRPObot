@@ -19,7 +19,7 @@ from bot.domain.events import (
     review_key,
     run_key,
 )
-from bot.domain.models import PullRequest, Review, ReviewComment
+from bot.domain.models import PullRequest, Review, ReviewComment, ReviewRequests
 from bot.github import GitHubClient
 from bot.watcher.state import WatchState
 
@@ -30,11 +30,11 @@ class Scan:
     pulls: tuple[PullRequest, ...]
 
 
-def added_reviewers(pr: PullRequest, known: tuple[str, ...] | None) -> tuple[str, ...]:
-    """Ревьюеры, запрошенные с прошлого опроса. Для незнакомого PR пусто: их покажет карточка нового PR."""
+def added_review_requests(pr: PullRequest, known: ReviewRequests | None) -> ReviewRequests:
+    """Кого попросили о ревью с прошлого опроса. Для незнакомого PR никого: их покажет карточка нового PR."""
     if known is None:
-        return ()
-    return tuple(login for login in pr.requested_reviewers if login not in known)
+        return ReviewRequests()
+    return pr.review_requests.added_since(known)
 
 
 def group_review_comments(
@@ -90,8 +90,8 @@ class RepoScanner:
         for pr in pulls:
             if not self._state.is_seen(pr_opened_key(pr)):
                 yield PullRequestOpened(repo, pr)
-            elif pr.is_open and (reviewers := added_reviewers(pr, self._state.known_reviewers(pr.id))):
-                yield ReviewRequested(repo, pr, reviewers)
+            elif pr.is_open and (added := added_review_requests(pr, self._state.known_review_requests(pr.id))):
+                yield ReviewRequested(repo, pr, added)
             if not pr.is_open and not self._state.is_seen(pr_finished_key(pr)):
                 yield PullRequestMerged(repo, pr) if pr.merged_at else PullRequestClosed(repo, pr)
 

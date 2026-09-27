@@ -26,10 +26,12 @@ from bot.domain.models import (
     PullRequestComment,
     Review,
     ReviewComment,
+    ReviewRequests,
     ReviewState,
     User,
     WorkflowRun,
 )
+from bot.domain.project import Project
 from bot.people import PeopleService
 from bot.telegram import handlers
 from bot.telegram.handlers.common import HELP
@@ -43,8 +45,6 @@ DEMO_HELP = (
     "/demo — прислать примеры всех карточек. Если сделать /link, автором PR в примерах будешь ты.\n\n" + HELP
 )
 
-REPO = "dejaview-backend"
-REPO_URL = f"https://github.com/dejaview-nsu/{REPO}"
 DEFAULT_AUTHOR = "student-demo"
 MENTOR = User("mentor-demo")
 
@@ -65,24 +65,28 @@ async def send_demo_cards(message: Message, bot: Bot, people: PeopleService, vie
     author = User(linked.github_login if linked else DEFAULT_AUTHOR)
     thread_id = message.message_thread_id if message.is_topic_message else None
     notifier = ChatNotifier(bot, ChatTarget(message.chat.id, thread_id), view, ChatPolicy(notify_build_success=True))
-    for event in sample_events(author):
+    for event in sample_events(author, view.project):
         await notifier.handle(event)
 
 
-def sample_events(author: User) -> list[RepoEvent]:
+def sample_events(author: User, project: Project) -> list[RepoEvent]:
     now = datetime.now(UTC)
+    repo = f"{project.repo_prefix}backend"
+    repo_url = f"https://github.com/{project.org}/{repo}"
+    # команда покажет, как выглядит ревью по CODEOWNERS: заданная в GITHUB_TEAMS или первая попавшаяся
+    team = next(iter(project.teams), "maintainers")
     pr = PullRequest(
         id=1,
         number=12,
         title="feat: API поиска по изображению",
         body="",
-        url=f"{REPO_URL}/pull/12",
+        url=f"{repo_url}/pull/12",
         author=author,
         head="feature/17653-image-search",
         base="main",
         is_open=True,
         is_draft=False,
-        requested_reviewers=(MENTOR.login,),
+        review_requests=ReviewRequests(users=(MENTOR.login,), teams=(team,)),
         created_at=now,
         updated_at=now,
         closed_at=None,
@@ -90,7 +94,7 @@ def sample_events(author: User) -> list[RepoEvent]:
     )
     merged = replace(pr, is_open=False, closed_at=now, merged_at=now)
     code_comments = tuple(
-        ReviewComment(i, 5, 12, path, body, MENTOR, f"{REPO_URL}/pull/12#discussion_r{i}", now)
+        ReviewComment(i, 5, 12, path, body, MENTOR, f"{repo_url}/pull/12#discussion_r{i}", now)
         for i, path, body in [
             (1, "src/search/handler.cpp", "Лучше назвать find_by_frame"),
             (2, "src/api/routes.cpp", "Здесь нужен таймаут"),
@@ -98,7 +102,7 @@ def sample_events(author: User) -> list[RepoEvent]:
     )
 
     def review(state: ReviewState, body: str) -> Review:
-        return Review(5, state, body, MENTOR, f"{REPO_URL}/pull/12#pullrequestreview-5", now)
+        return Review(5, state, body, MENTOR, f"{repo_url}/pull/12#pullrequestreview-5", now)
 
     def run(conclusion: str, number: int) -> WorkflowRun:
         return WorkflowRun(
@@ -109,8 +113,8 @@ def sample_events(author: User) -> list[RepoEvent]:
             conclusion=conclusion,
             branch=pr.head,
             title=pr.title,
-            url=f"{REPO_URL}/actions",
-            repo_url=REPO_URL,
+            url=f"{repo_url}/actions",
+            repo_url=repo_url,
             actor=author,
             pr_numbers=(12,),
             started_at=now - timedelta(minutes=2, seconds=13),
@@ -118,12 +122,12 @@ def sample_events(author: User) -> list[RepoEvent]:
         )
 
     return [
-        PullRequestOpened(REPO, pr),
-        ReviewRequested(REPO, pr, ("architect-demo",)),
-        BuildFinished(REPO, run("failure", 57), (FailedJob("build", "Run tests"), FailedJob("lint", "clang-format"))),
-        BuildFinished(REPO, run("success", 58)),
+        PullRequestOpened(repo, pr),
+        ReviewRequested(repo, pr, ReviewRequests(users=("architect-demo",))),
+        BuildFinished(repo, run("failure", 57), (FailedJob("build", "Run tests"), FailedJob("lint", "clang-format"))),
+        BuildFinished(repo, run("success", 58)),
         ReviewSubmitted(
-            REPO,
+            repo,
             pr,
             review(
                 ReviewState.CHANGES_REQUESTED,
@@ -133,12 +137,12 @@ def sample_events(author: User) -> list[RepoEvent]:
             ),
             (),
         ),
-        CodeCommented(REPO, pr, code_comments[:1]),
+        CodeCommented(repo, pr, code_comments[:1]),
         PullRequestCommented(
-            REPO,
+            repo,
             pr,
-            PullRequestComment(9, 12, "Поправил, посмотри ещё раз", author, f"{REPO_URL}/pull/12", now),
+            PullRequestComment(9, 12, "Поправил, посмотри ещё раз", author, f"{repo_url}/pull/12", now),
         ),
-        ReviewSubmitted(REPO, pr, review(ReviewState.APPROVED, "Отлично, только поправь нейминг"), code_comments),
-        PullRequestMerged(REPO, merged),
+        ReviewSubmitted(repo, pr, review(ReviewState.APPROVED, "Отлично, только поправь нейминг"), code_comments),
+        PullRequestMerged(repo, merged),
     ]

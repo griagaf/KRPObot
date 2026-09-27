@@ -65,5 +65,17 @@ def test_view_names_and_mentions():
 
 def test_telegram_names_are_escaped(store):
     store.save(Person("x", 1, "<b>хакер</b>"))
-    view = f.View(store, str, "dejaview-nsu")
+    view = f.View(store, str, f.PROJECT)
     assert "&lt;b&gt;" in view.mention("x")
+
+
+def test_link_keeps_telegram_username(service, store):
+    asyncio.run(service.link("octocat", 1, "Кот", "cat_tg"))
+    assert store.find("octocat").tg_username == "cat_tg"
+
+
+def test_store_of_previous_version_gains_username_column():
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE people (github_login TEXT PRIMARY KEY COLLATE NOCASE, tg_id INTEGER, tg_name TEXT)")
+    db.execute("INSERT INTO people VALUES ('octocat', 1, 'Кот')")
+    assert PeopleStore(db).find("octocat") == Person("octocat", 1, "Кот", None)

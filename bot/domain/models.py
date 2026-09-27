@@ -12,6 +12,23 @@ class User:
 
 
 @dataclass(frozen=True)
+class ReviewRequests:
+    """Кого попросили о ревью: людей и команды GitHub. Команды обычно назначает CODEOWNERS."""
+
+    users: tuple[str, ...] = ()
+    teams: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.users or self.teams)
+
+    def added_since(self, known: "ReviewRequests") -> "ReviewRequests":
+        return ReviewRequests(
+            tuple(u for u in self.users if u not in known.users),
+            tuple(t for t in self.teams if t not in known.teams),
+        )
+
+
+@dataclass(frozen=True)
 class PullRequest:
     id: int
     number: int
@@ -23,7 +40,7 @@ class PullRequest:
     base: str
     is_open: bool
     is_draft: bool
-    requested_reviewers: tuple[str, ...]
+    review_requests: ReviewRequests
     created_at: datetime
     updated_at: datetime
     closed_at: datetime | None

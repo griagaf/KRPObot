@@ -10,6 +10,7 @@ from bot.domain.models import (
     PullRequestComment,
     Review,
     ReviewComment,
+    ReviewRequests,
     User,
     WorkflowRun,
 )
@@ -45,7 +46,10 @@ def pull_request(data: Json) -> PullRequest:
         base=data["base"]["ref"],
         is_open=data["state"] == "open",
         is_draft=bool(data.get("draft")),
-        requested_reviewers=tuple(sorted(u["login"] for u in data.get("requested_reviewers") or [])),
+        review_requests=ReviewRequests(
+            users=tuple(sorted(u["login"] for u in data.get("requested_reviewers") or [])),
+            teams=tuple(sorted(t["slug"] for t in data.get("requested_teams") or [])),
+        ),
         created_at=_time(data["created_at"]),
         updated_at=_time(data["updated_at"]),
         closed_at=_optional_time(data.get("closed_at")),

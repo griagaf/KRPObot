@@ -13,9 +13,9 @@ from bot.domain.events import (
     ReviewRequested,
     ReviewSubmitted,
 )
-from bot.domain.models import FailedJob
+from bot.domain.models import FailedJob, ReviewRequests
 from bot.watcher import RepoScanner, WatchState
-from bot.watcher.scanner import added_reviewers, group_review_comments
+from bot.watcher.scanner import added_review_requests, group_review_comments
 from tests import factories as f
 from tests.fakes import FakeGitHub
 
@@ -48,10 +48,11 @@ def test_group_review_comments_by_review_then_by_pr_and_author():
     assert sorted([c.id for c in group] for group in orphans) == [[2, 3], [4]]
 
 
-def test_added_reviewers():
-    pr = f.pr(reviewers=("a", "b"))
-    assert added_reviewers(pr, ("a",)) == ("b",)
-    assert added_reviewers(pr, None) == ()
+def test_added_review_requests():
+    pr = f.pr(reviewers=("a", "b"), teams=("maintainers",))
+    assert added_review_requests(pr, ReviewRequests(users=("a",))) == ReviewRequests(("b",), ("maintainers",))
+    assert added_review_requests(pr, pr.review_requests) == ReviewRequests()
+    assert not added_review_requests(pr, None)
 
 
 def test_pull_request_lifecycle(github, state):
@@ -67,7 +68,7 @@ def test_review_request_is_detected_against_remembered_reviewers(github, state):
     state.remember_pulls(github.pulls)
     github.pulls = [f.pr(reviewers=("mentor",), updated_at="2026-10-01T13:00:00Z")]
     [event] = scan(github, state).events
-    assert isinstance(event, ReviewRequested) and event.reviewers == ("mentor",)
+    assert isinstance(event, ReviewRequested) and event.requests == ReviewRequests(users=("mentor",))
 
 
 def test_review_carries_its_code_comments_and_other_comments_are_grouped(github, state):
@@ -110,3 +111,10 @@ def test_failed_build_details_are_fetched_only_when_needed(github, state):
     [failed, _] = scan(github, state).events
     assert isinstance(failed, BuildFinished) and failed.failed_jobs == (FailedJob("build", "Run tests"),)
     assert github.fetched_jobs == [1]
+
+
+def test_remembered_reviewers_of_previous_version_are_read():
+    db = sqlite3.connect(":memory:")
+    state = WatchState(db)
+    db.execute("INSERT INTO pull_requests VALUES (1012, '2026-10-01T10:00:00+00:00', '[\"mentor\"]')")
+    assert state.known_review_requests(1012) == ReviewRequests(users=("mentor",))

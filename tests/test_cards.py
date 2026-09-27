@@ -1,14 +1,19 @@
+from dataclasses import replace
+
 from bot.domain.events import (
     BuildFinished,
     PullRequestClosed,
     PullRequestCommented,
     PullRequestMerged,
     PullRequestOpened,
+    ReviewRequested,
     ReviewSubmitted,
 )
-from bot.domain.models import FailedJob
+from bot.domain.models import FailedJob, ReviewRequests
+from bot.people import Person
 from bot.telegram import cards
 from bot.telegram.markup import plural
+from bot.telegram.view import View
 from tests import factories as f
 
 REPO = "dejaview-backend"
@@ -100,3 +105,28 @@ def test_successful_build_does_not_ping():
 
 def test_plural():
     assert [plural(k, "a", "b", "c") for k in (1, 2, 5, 11, 12, 21, 22, 25)] == list("abcccabc")
+
+
+def test_codeowners_team_pings_its_members_except_author():
+    project = replace(f.PROJECT, teams={"maintainers": ("Mentor", "student")})
+    pr = f.pr(teams=("maintainers",))
+    text = cards.render(PullRequestOpened(REPO, pr), f.view(("mentor", "student"), project))
+    assert text.endswith('🔔 <a href="tg://user?id=1">Mentor</a> — ждём ревью')
+
+
+def test_team_without_members_is_shown_as_link():
+    text = render(ReviewRequested(REPO, f.pr(), ReviewRequests(teams=("maintainers",))))
+    assert '🔔 <a href="https://github.com/orgs/dejaview-nsu/teams/maintainers">👥 maintainers</a>' in text
+
+
+def test_person_with_username_is_mentioned_by_it():
+    people = f.people()
+    people.save(Person("student", 1, "Student", "student_tg"))
+    view = View(people, str, f.PROJECT)
+    text = cards.render(PullRequestMerged(REPO, f.merged_pr()), view)
+    assert "🔔 @student_tg, переведи" in text
+
+
+def test_task_done_status_comes_from_project():
+    view = f.view(project=replace(f.PROJECT, task_done_status="Решена"))
+    assert "в Решена со ссылкой" in cards.render(PullRequestMerged(REPO, f.merged_pr()), view)

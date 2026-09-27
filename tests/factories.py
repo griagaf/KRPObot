@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any
 
 from bot.domain.models import PullRequest, PullRequestComment, Review, ReviewComment, WorkflowRun
+from bot.domain.project import Project
 from bot.github import parsing
 from bot.people import PeopleStore, Person
 from bot.telegram.view import View
@@ -31,6 +32,7 @@ def pr_json(
     draft: bool = False,
     author: str = "student",
     reviewers: tuple[str, ...] = (),
+    teams: tuple[str, ...] = (),
 ) -> Json:
     return {
         "id": 1000 + number,
@@ -42,6 +44,7 @@ def pr_json(
         "html_url": f"{REPO_URL}/pull/{number}",
         "user": user_json(author),
         "requested_reviewers": [user_json(r) for r in reviewers],
+        "requested_teams": [{"slug": t} for t in teams],
         "head": {"ref": branch},
         "base": {"ref": "main"},
         "created_at": created_at,
@@ -177,13 +180,16 @@ def job_json(name: str, conclusion: str = "success", failed_step: str | None = N
     return {"name": name, "conclusion": conclusion, "steps": steps}
 
 
+PROJECT = Project(org="dejaview-nsu", repo_prefix="dejaview-")
+
+
 def people(linked: tuple[str, ...] = ()) -> PeopleStore:
-    """linked: логины со связкой в Telegram; tg_id по порядку с 1, имя — логин с заглавной."""
+    """linked: логины со связкой в Telegram; tg_id по порядку с 1, имя — логин с заглавной, без @username."""
     store = PeopleStore(sqlite3.connect(":memory:"))
     for tg_id, login in enumerate(linked, start=1):
         store.save(Person(login, tg_id, login.capitalize()))
     return store
 
 
-def view(linked: tuple[str, ...] = ()) -> View:
-    return View(people(linked), lambda task: f"https://ai.nsu.ru/issues/{task}", "dejaview-nsu")
+def view(linked: tuple[str, ...] = (), project: Project = PROJECT) -> View:
+    return View(people(linked), lambda task: f"https://ai.nsu.ru/issues/{task}", project)

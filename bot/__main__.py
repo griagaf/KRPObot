@@ -8,11 +8,14 @@ from bot.config import ConfigError, Settings
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="changelog-bot", description="Telegram-бот DejaView")
+    parser = argparse.ArgumentParser(
+        prog="changelog-bot", description="Telegram-бот: уведомления о PR и сборках GitHub, changelog"
+    )
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="без наблюдения за репозиториями: команды и /demo с примерами карточек, нужен только TELEGRAM_BOT_TOKEN",
+        help="без наблюдения за репозиториями: команды и /demo с примерами карточек, "
+        "нужны только TELEGRAM_BOT_TOKEN и GITHUB_ORG",
     )
     args = parser.parse_args()
 

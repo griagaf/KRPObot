@@ -13,7 +13,8 @@ async def link_account(message: Message, command: CommandObject, people: PeopleS
         return
     login = command.args or ""
     try:
-        person = await people.link(login, message.from_user.id, message.from_user.full_name)
+        user = message.from_user
+        person = await people.link(login, user.id, user.full_name, user.username)
     except InvalidLoginError:
         await message.answer("Напиши свой логин на GitHub: <code>/link octocat</code>")
     except UnknownLoginError:
@@ -26,10 +27,18 @@ async def link_account(message: Message, command: CommandObject, people: PeopleS
     except GitHubError:
         await message.answer("GitHub не ответил, попробуй позже.")
     else:
-        await message.answer(
+        text = (
             f"🔗 {view.github_profile(person.github_login)} ↔ {view.mention(person.github_login)}\n"
-            "Теперь буду отмечать тебя в ревью, комментариях к твоим PR и упавших сборках."
+            "Теперь буду отмечать тебя в ревью, в том числе когда его просят у твоей команды, "
+            "в комментариях к твоим PR и в упавших сборках."
         )
+        if person.tg_username is None:
+            # отметка без @username доходит, только если человек писал боту в личку
+            text += (
+                "\n\n⚠️ У тебя нет имени пользователя в Telegram, отметка может не прийти. "
+                "Задай его в настройках Telegram и сделай /link ещё раз."
+            )
+        await message.answer(text)
 
 
 async def unlink_account(message: Message, people: PeopleService, view: View) -> None:
