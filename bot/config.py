@@ -60,6 +60,6 @@ class Settings:
             notify_build_success=ci_notify == "all",
             redmine_url=os.getenv("REDMINE_URL", "https://ai.nsu.ru").rstrip("/"),
             redmine_api_key=os.getenv("REDMINE_API_KEY") or None,
-            db_path=os.getenv("DB_PATH", "bot.sqlite3"),
+            db_path=os.getenv("DB_PATH") or "bot.sqlite3",  # на "" sqlite молча открыл бы временную базу
             timezone=ZoneInfo(os.getenv("TIMEZONE", "Asia/Novosibirsk")),
         )

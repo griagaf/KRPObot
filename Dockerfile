@@ -7,11 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 COPY pyproject.toml .
 COPY bot bot
-RUN pip install . \
-    && useradd --system --create-home bot \
-    && mkdir /data \
-    && chown bot /data
+RUN pip install . && mkdir /data
 
-USER bot
 VOLUME /data
 CMD ["changelog-bot"]
