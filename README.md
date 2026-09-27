@@ -72,10 +72,13 @@ GitHub ──► github/        клиент REST API, JSON → модели
 ## Запуск
 
 1. Создать бота у [@BotFather](https://t.me/BotFather), добавить в группу.
-2. Написать `/chatid` в нужной теме группы, значения перенести в `.env` (шаблон в `.env.example`).
-3. Создать [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+2. Создать [fine-grained token](https://github.com/settings/personal-access-tokens/new)
    с доступом *Public repositories (read-only)*.
-4. Запустить:
+3. Заполнить `.env` (шаблон в `.env.example`) и запустить, как показано ниже. `TELEGRAM_CHAT_ID` пока не нужен:
+   без него бот отвечает на команды, но уведомления не шлёт.
+4. Написать `/chatid` в нужной теме группы, вписать id в `TELEGRAM_CHAT_ID` и `TELEGRAM_THREAD_ID`, перезапустить.
+
+Запуск:
 
 ```sh
 pip install -e .   # -e: команда changelog-bot идёт по коду из этой папки, правки видны сразу

@@ -10,7 +10,7 @@ from aiogram.enums import ParseMode
 
 from bot import db, demo
 from bot.changelog import ChangelogService
-from bot.config import ConfigError, Settings
+from bot.config import Settings
 from bot.github import GitHubClient
 from bot.people import PeopleService, PeopleStore
 from bot.redmine import RedmineClient
@@ -55,7 +55,14 @@ async def run(settings: Settings, *, demo_mode: bool = False) -> None:
                 await dispatcher.start_polling(bot)
                 return
 
-            watcher = _watcher(settings, bot, github, view, WatchState(connection), repos)
+            if settings.chat_id is None:
+                # чат узнают командой /chatid, поэтому без него бот всё равно запускается
+                log.warning("Не задан TELEGRAM_CHAT_ID: уведомления выключены, работают только команды")
+                await dispatcher.start_polling(bot)
+                return
+
+            target = ChatTarget(settings.chat_id, settings.thread_id)
+            watcher = _watcher(settings, bot, github, view, WatchState(connection), repos, target)
             log.info("Слежу за репозиториями: %s", ", ".join(repos))
             watch_task = asyncio.create_task(watcher.run(), name="watcher")
             try:
@@ -70,10 +77,13 @@ async def run(settings: Settings, *, demo_mode: bool = False) -> None:
 
 
 def _watcher(
-    settings: Settings, bot: Bot, github: GitHubClient, view: View, state: WatchState, repos: tuple[str, ...]
+    settings: Settings,
+    bot: Bot,
+    github: GitHubClient,
+    view: View,
+    state: WatchState,
+    repos: tuple[str, ...],
+    target: ChatTarget,
 ) -> Watcher:
-    if settings.chat_id is None:
-        raise ConfigError("Не задан TELEGRAM_CHAT_ID: некуда слать уведомления")
-    target = ChatTarget(settings.chat_id, settings.thread_id)
     notifier = ChatNotifier(bot, target, view, ChatPolicy(settings.notify_build_success))
     return Watcher(RepoScanner(github, state), state, repos, [notifier], interval=settings.poll_interval)
