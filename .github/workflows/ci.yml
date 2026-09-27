@@ -42,6 +42,14 @@ jobs:
           AMVERA_USERNAME: ${{ secrets.AMVERA_USERNAME }}
           AMVERA_PASSWORD: ${{ secrets.AMVERA_PASSWORD }}
         run: |
-          auth=$(printf '%s:%s' "$AMVERA_USERNAME" "$AMVERA_PASSWORD" | base64 -w0)
+          # значения, вставленные в GitHub вместе с Enter, приходят с переводом строки
+          url=$(printf '%s' "$AMVERA_REPO_URL" | tr -d '[:space:]')
+          user=$(printf '%s' "$AMVERA_USERNAME" | tr -d '\r\n')
+          password=$(printf '%s' "$AMVERA_PASSWORD" | tr -d '\r\n')
+          if [ -z "$url" ] || [ -z "$user" ] || [ -z "$password" ]; then
+            echo "::error::Нужны переменная AMVERA_REPO_URL и секреты AMVERA_USERNAME, AMVERA_PASSWORD"
+            exit 1
+          fi
+          auth=$(printf '%s:%s' "$user" "$password" | base64 -w0)
           echo "::add-mask::$auth"
-          git -c http.extraHeader="Authorization: Basic $auth" push --force "$AMVERA_REPO_URL" HEAD:master
+          git -c http.extraHeader="Authorization: Basic $auth" push --force "$url" HEAD:master
