@@ -2,6 +2,7 @@ from dataclasses import replace
 
 from bot.domain.events import (
     BuildFinished,
+    CodeCommented,
     PullRequestClosed,
     PullRequestCommented,
     PullRequestMerged,
@@ -137,3 +138,33 @@ def test_team_request_pings_personal_code_owner_only():
     owners = ReviewRequests(("mentor",), ("maintainers",))
     text = cards.render(PullRequestOpened(REPO, f.pr(teams=("maintainers",)), owners), f.view(("mentor",), project))
     assert text.endswith('🔔 <a href="tg://user?id=1">Mentor</a> — ждём ревью')
+
+
+def test_author_comment_pings_whoever_is_tagged_on_github():
+    comment = f.pr_comment(author="student", body="@Mentor поправил, посмотри. @ghost, @Override")
+    text = render(PullRequestCommented(REPO, f.pr(), comment), ("student", "mentor"))
+    assert text.endswith('🔔 <a href="tg://user?id=2">Mentor</a>')  # ghost и Override не связаны
+
+
+def test_tagged_team_is_expanded_and_author_still_pinged():
+    project = replace(f.PROJECT, teams={"maintainers": ("mentor", "lead", "reviewer")})
+    comment = f.pr_comment(body="@dejaview-nsu/maintainers и @student, гляньте")
+    text = cards.render(PullRequestCommented(REPO, f.pr(), comment), f.view(("student", "mentor", "lead"), project))
+    # student — автор PR, reviewer не связан, сам mentor — автор комментария
+    assert text.endswith('🔔 <a href="tg://user?id=1">Student</a>, <a href="tg://user?id=3">Lead</a>')
+
+
+def test_tags_in_review_and_code_comments_are_pinged():
+    comments = (f.review_comment(1, body="тут спроси @lead"),)
+    text = render(ReviewSubmitted(REPO, f.pr(), f.review(body="Норм"), comments), ("student", "lead"))
+    assert text.endswith('🔔 <a href="tg://user?id=1">Student</a>, <a href="tg://user?id=2">Lead</a>')
+    text = render(CodeCommented(REPO, f.pr(), comments), ("lead",))
+    assert text.endswith('🔔 <a href="https://github.com/student">student</a>, <a href="tg://user?id=1">Lead</a>')
+
+
+def test_description_tags_ping_on_new_pr_but_not_on_draft():
+    pr = f.pr(body="@mentor глянь, пожалуйста")
+    assert render(PullRequestOpened(REPO, pr), ("mentor",)).endswith(
+        '🔔 <a href="tg://user?id=1">Mentor</a> — ждём ревью'
+    )
+    assert "🔔" not in render(PullRequestOpened(REPO, f.pr(body="@mentor", draft=True)), ("mentor",))

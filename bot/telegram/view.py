@@ -27,6 +27,9 @@ class View:
     def task(self, task_id: int, text: str | None = None) -> str:
         return link(self._issue_url(task_id), text or f"#{task_id}")
 
+    def is_linked(self, login: str) -> bool:
+        return self._people.find(login) is not None
+
     def name(self, login: str) -> str:
         """Кто сделал действие: имя без упоминания, чтобы не тревожить самого автора."""
         person = self._people.find(login)
