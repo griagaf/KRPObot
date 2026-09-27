@@ -1,0 +1,47 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest
+
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # два деплоя подряд не должны толкаться в Amvera одновременно
+    concurrency:
+      group: amvera-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # из shallow-клона пуш в чужой репозиторий отклоняется
+      # Репозиторий Amvera — зеркало: источник правды GitHub, поэтому --force.
+      # Amvera собирает Dockerfile и перезапускает бота после каждого пуша в свой master
+      - name: Push to Amvera
+        env:
+          AMVERA_REPO_URL: ${{ vars.AMVERA_REPO_URL }}
+          AMVERA_USERNAME: ${{ secrets.AMVERA_USERNAME }}
+          AMVERA_PASSWORD: ${{ secrets.AMVERA_PASSWORD }}
+        run: |
+          auth=$(printf '%s:%s' "$AMVERA_USERNAME" "$AMVERA_PASSWORD" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c http.extraHeader="Authorization: Basic $auth" push --force "$AMVERA_REPO_URL" HEAD:master
